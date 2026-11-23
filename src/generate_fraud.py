@@ -1,4 +1,3 @@
-
 """Génère transactions.csv et labels.csv : données synthétiques de fraude bancaire."""
 
 import csv
