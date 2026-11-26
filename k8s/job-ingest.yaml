@@ -1,0 +1,72 @@
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ingest-bronze
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+
+      initContainers:
+        - name: generate
+          image: python:3.12-slim
+          command:
+            - sh
+            - -c
+            - cd /data && python /src/generate.py && ls -l /data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: src
+              mountPath: /src
+              readOnly: true
+
+      containers:
+        - name: upload
+          image: amazon/aws-cli:latest
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              set -e
+              for f in /data/*.csv; do
+                aws s3 cp "$f" "s3://$LAB_BUCKET_NAME/bronze/$(basename "$f")" \
+                  --endpoint-url "$AWS_ENDPOINT_URL" \
+                  --region "$AWS_DEFAULT_REGION"
+              done
+              aws s3 ls "s3://$LAB_BUCKET_NAME/bronze/" --recursive \
+                --endpoint-url "$AWS_ENDPOINT_URL" \
+                --region "$AWS_DEFAULT_REGION"
+          envFrom:
+            - configMapRef:
+                name: s3-config
+            - secretRef:
+                name: s3-credentials
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: src
+          configMap:
+            name: generator-script
